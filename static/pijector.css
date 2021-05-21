@@ -1,0 +1,104 @@
+/** CSS **/
+
+body,
+html {
+    background-color: #333;
+    color: #eee;
+    font-family: serif;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    font-weight: normal;
+}
+
+a,
+a:hover {
+    color: #eee;
+}
+
+a {
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+div#error-content {
+    position: absolute;
+    top: 0;
+    width: 99%;
+}
+
+div#main-content {
+    margin-top: 5%;
+}
+
+.flex-container {
+    display: flex;
+}
+
+.flex-child {
+    flex: 1;
+}
+
+.flex-child:first-child {
+    margin-right: 20px;
+}
+
+.snap-container {
+    text-align: center;
+}
+
+.snap-container img,
+.error {
+    width: 80%;
+    height: auto;
+    box-shadow: 0 0 2px #999;
+}
+
+.status-container {
+    padding-bottom: 1.75em;
+}
+
+.status-container,
+.status-container a {
+    color: #aaa;
+}
+
+.status-container a:hover {
+    color: #eee;
+}
+
+.status-field {
+    color: #ddd;
+    font-weight: bolder;
+}
+
+.error-container {
+    margin-top: 1.75em;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column-reverse;
+}
+
+.error {
+    margin-left: 20px;
+    background-color: #ff503c;
+    padding: 10px;
+    max-width: 500px;
+}
+
+.error * {
+    margin: .25em;
+}
+
+.error .error-message {
+    background-color: #97281c;
+    padding: .25em;
+}

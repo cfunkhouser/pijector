@@ -1,0 +1,12 @@
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+build/*
+
+# This file is generated, and should not be checked in.
+client/content/blob.go

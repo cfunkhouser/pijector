@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Pijector Kiosk</title>
+    <link href="/pijector.css" rel="stylesheet" />
+</head>
+
+<body>
+    <script type="text/javascript" src="/jquery-3.6.0.min.js"></script>
+    <script type="text/javascript">
+        ((window) => {
+            let CURRENT_KIOSK_URL;
+            const
+                SECONDS = 1000,
+                ERROR_DISPLAY_INTERVAL = SECONDS * 15,
+                ERROR_FADE_DURATION = SECONDS * .25,
+                STATUS_UPDATE_INTERVAL = SECONDS * 30;
+            const safen = (text) => {
+                return $('<div>', {
+                    text: text
+                }).text();
+            };
+            const populateStatus = (status) => {
+                const safeUrl = safen(status.url);
+                $('#status-content').html(`<div>
+                <h3>${safen(status.title)}</h3>
+                <span class="status-field">URL:</span> <a href="${safeUrl}">${safeUrl}</a>
+            </div>`);
+                if (status.screenshot) {
+                    $('img#snap').attr('src', status.screenshot);
+                }
+            };
+            const handleFail = (jqXhr, unused, err) => {
+                let msg = err;
+                if (jqXhr.readyState == 0) {
+                    msg = 'Request failed. Did the server go away?';
+                } else if (jqXhr.responseText) {
+                    msg = jqXhr.responseText;
+                }
+                console.error(msg);
+                showAnError(msg);
+            };
+            const showAnError = (msg) => {
+                const errNode = $(`<div class="error flex-child">
+                <div><p>Oh no:</p></div>
+                <div class="error-message"><code>${safen(msg)}</code></div>
+            </div>`);
+                errNode.css('display', 'none')
+                    .appendTo($('#error-content'))
+                    .fadeIn(ERROR_FADE_DURATION)
+                    .delay(ERROR_DISPLAY_INTERVAL)
+                    .fadeOut(ERROR_FADE_DURATION);
+                setTimeout(() => {
+                    errNode.remove();
+                }, ERROR_DISPLAY_INTERVAL + 50);
+            };
+            const triggerStatusLoad = () => {
+                console.log(`Fetching Kiosk ${CURRENT_KIOSK_URL}`);
+                $.get(CURRENT_KIOSK_URL).done(populateStatus).fail(handleFail);
+            };
+            const statusUpdateLoop = () => {
+                triggerStatusLoad();
+                setTimeout(statusUpdateLoop, STATUS_UPDATE_INTERVAL);
+            };
+            const discoverKiosks = () => {
+                $.get('/api/v1/kiosk').done(handleKioskDiscovery).fail(handleFail);
+            };
+            const handleKioskDiscovery = (payload) => {
+                const kioskSelect = $('#kiosk-select');
+                kioskSelect.empty();
+                if (payload.kiosks) {
+                    $.each(payload.kiosks, (idx, kiosk) => {
+                        const optName = kiosk.name || kiosk.id;
+                        const opt = $(`<option value="${safen(kiosk.id)}">${safen(optName)}</option>`);
+                        if ((!CURRENT_KIOSK_URL && !idx) || (kiosk.url == CURRENT_KIOSK_URL)) {
+                            opt.attr('selected', 'selected');
+                        }
+                        kioskSelect.append(opt);
+                    });
+                }
+                if (!CURRENT_KIOSK_URL) {
+                    adminKiosk(payload.kiosks[0].id);
+                }
+            };
+            const adminKiosk = (kioskId) => {
+                CURRENT_KIOSK_URL = `/api/v1/kiosk/${kioskId}`;
+                triggerStatusLoad();
+            };
+            $(window).on('load', function() {
+                discoverKiosks();
+                $('#kiosk-select').change(() => {
+                    adminKiosk($('#kiosk-select option:selected').first().attr('value'));
+                });
+                $('#show-control').submit((event) => {
+                    event.preventDefault();
+                    $.get(`${CURRENT_KIOSK_URL}/show`, {
+                        target: $('#target-url').val()
+                    }).done(populateStatus).fail(handleFail);
+                });
+            });
+        })(window);
+    </script>
+    <div id="main-content">
+        <div id="error-content" class="error-container flex-container"></div>
+        <div class="flex-container">
+            <div class="flex-child snap-container">
+                <img id="snap" />
+            </div>
+            <div class="flex-child">
+                <h2>Current Display</h2>
+                <label for="kiosk-select">Managing:</label>
+                <select name="kiosk-select" id="kiosk-select"></select>
+                <div id="status-content" class="status-container"></div>
+                <h2>Update</h2>
+                <div id="control-content" class="status-container">
+                    <form id="show-control" method="get">
+                        <label for="target-url">New URL:</label>
+                        <input type="text" id="target-url" name="target" />
+                        <input id="show-control-submit" type="submit" value="Show" />
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>
+<!-- Hello, Min! -->
