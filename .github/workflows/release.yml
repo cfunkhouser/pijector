@@ -1,0 +1,29 @@
+name: Publish Binaries on Release
+
+on:
+  push:
+    tags:
+      - v*
+
+jobs:
+  release-pijector:
+    name: Release pijector
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build pijector
+        run: make all
+      - name: Release pijector
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: |
+            build/pijector-darwin-amd64
+            build/pijector-linux-amd64
+            build/pijector-linux-arm6
+            build/pijector-linux-arm7
+            build/pijector-linux-386
+            build/SHA1SUM.txt
+            build/SHA256SUM.txt
