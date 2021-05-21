@@ -9,10 +9,10 @@ ifneq ($(strip $(VERSION)),)
 	BUILDCMD := go build -ldflags="-X 'main.Version=$(VERSION)'" -o
 endif
 
-TARGETS := $(foreach ku,$(PLATFORMS),$(BUILDDIR)/pijector-$(ku))
-SUMS := SHA1SUM.txt SHA256SUM.txt
+BINARIES := $(foreach ku,$(PLATFORMS),$(BUILDDIR)/pijector-$(ku))
+SUMS := $(foreach ku,SHA1SUM.txt SHA256SUM.txt,$(BUILDDIR)/$(ku))
 
-all: $(TARGETS) $(SUMS)
+all: $(BINARIES) $(SUMS)
 
 clean:
 	@rm -f ./client/internal/blob.go
@@ -21,17 +21,17 @@ clean:
 generated:
 	go generate ./...
 
-"$(BUILDDIR)/pijector-linux-arm%":
+$(BUILDDIR)/pijector-linux-arm%:
 	env GOOS=linux GOARCH=arm GOARM=$* $(BUILDCMD) $@ $(MAIN)
 
-"$(BUILDDIR)/pijector-linux-%":
+$(BUILDDIR)/pijector-linux-%:
 	env GOOS=linux GOARCH=$* $(BUILDCMD) $@ $(MAIN)
 
-"$(BUILDDIR)/pijector-darwin-%":
+$(BUILDDIR)/pijector-darwin-%:
 	env GOOS=darwin GOARCH=$* $(BUILDCMD) $@ $(MAIN)
 
-"$(BUILDDIR)/SHA%SUM.txt": $(TARGETS)
-	shasum -a $* $(TARGETS) > $@
+$(BUILDDIR)/SHA%SUM.txt: $(BINARIES)
+	shasum -a $* $(BINARIES) > $@
 
-"$(BUILDDIR)/%": generated
+$(BUILDDIR)/%: generated
 	go build -o $@ ./cmd/$*
