@@ -47,8 +47,9 @@ div#main-content {
     flex: 1;
 }
 
-.flex-child:first-child {
-    margin-right: 20px;
+.flex-child>* {
+    margin-top: 0;
+    padding-top: 0;
 }
 
 .snap-container {
@@ -75,7 +76,8 @@ div#main-content {
     color: #eee;
 }
 
-.status-field {
+label,
+.status-label {
     color: #ddd;
     font-weight: bolder;
 }

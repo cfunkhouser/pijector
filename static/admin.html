@@ -24,8 +24,8 @@
             const populateStatus = (status) => {
                 const safeUrl = safen(status.url);
                 $('#status-content').html(`<div>
-                <h3>${safen(status.title)}</h3>
-                <span class="status-field">URL:</span> <a href="${safeUrl}">${safeUrl}</a>
+                <div><span class="status-label">Displaying:</span> ${safen(status.title)}</div>
+                <div><span class="status-label">At URL:</span> <a href="${safeUrl}">${safeUrl}</a></div>
             </div>`);
                 if (status.screenshot) {
                     $('img#snap').attr('src', status.screenshot);
@@ -104,18 +104,17 @@
     <div id="main-content">
         <div id="error-content" class="error-container flex-container"></div>
         <div class="flex-container">
-            <div class="flex-child snap-container">
-                <img id="snap" />
+            <div class="flex-child">
+                <div class="snap-container"><img id="snap" /></div>
             </div>
             <div class="flex-child">
-                <h2>Current Display</h2>
-                <label for="kiosk-select">Managing:</label>
+                <h1>Pijector Control</h1>
+                <label for="kiosk-select">Kiosk:</label>
                 <select name="kiosk-select" id="kiosk-select"></select>
                 <div id="status-content" class="status-container"></div>
-                <h2>Update</h2>
                 <div id="control-content" class="status-container">
                     <form id="show-control" method="get">
-                        <label for="target-url">New URL:</label>
+                        <label for="target-url">Update URL:</label>
                         <input type="text" id="target-url" name="target" />
                         <input id="show-control-submit" type="submit" value="Show" />
                     </form>
