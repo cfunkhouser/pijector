@@ -33,9 +33,9 @@ USAGE:
    pijector-linux-amd64 server [command options] [arguments...]
 
 OPTIONS:
-   --kiosk value, -k value        ip:port on which Chromium Kiosk's debugger is listening (default: "127.0.0.1:9222") [$BILLBOARD_KIOSK_ADDRESS]
+   --kiosk value, -k value        ip:port on which Chromium Kiosk's debugger is listening (default: "127.0.0.1:9222") [$PIJECTOR_KIOSK_ADDRESS]
    --listen value, -L value       ip:port on which to serve API requests (default: "0.0.0.0:9292")
-   --default-url value, -d value  Default URL to open in the Chromium Kiosk (default: "http://localhost:9292/") [$BILLBOARD_KIOSK_DEFAULT_URL]
+   --default-url value, -d value  Default URL to open in the Chromium Kiosk (default: "http://localhost:9292/") [$PIJECTOR_KIOSK_DEFAULT_URL]
    --help, -h                     show help (default: false)
 $ pijector server -k localhost:9222
 
