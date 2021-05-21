@@ -9,4 +9,4 @@
 build/*
 
 # This file is generated, and should not be checked in.
-client/content/blob.go
+client/internal/blob.go

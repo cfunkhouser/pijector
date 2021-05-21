@@ -12,7 +12,7 @@ endif
 BINARIES := $(foreach ku,$(PLATFORMS),$(BUILDDIR)/pijector-$(ku))
 SUMS := $(foreach ku,SHA1SUM.txt SHA256SUM.txt,$(BUILDDIR)/$(ku))
 
-all: $(BINARIES) $(SUMS)
+all: generated $(BINARIES) $(SUMS)
 
 clean:
 	@rm -f ./client/internal/blob.go
