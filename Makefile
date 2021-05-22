@@ -1,4 +1,4 @@
-.PHONY: all clean generate
+.PHONY: all clean generated
 
 BUILDDIR := ./build
 MAIN := ./cmd/pijector
@@ -15,7 +15,7 @@ SUMS := $(foreach ku,SHA1SUM.txt SHA256SUM.txt,$(BUILDDIR)/$(ku))
 all: generated $(BINARIES) $(SUMS)
 
 clean:
-	@rm -f ./client/internal/blob.go
+	@rm -f ./admin/internal/staticfiles.go
 	@rm -rf "$(BUILDDIR)"
 
 generated:

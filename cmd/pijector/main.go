@@ -6,8 +6,8 @@ import (
 	"os"
 
 	"github.com/cfunkhouser/pijector"
+	"github.com/cfunkhouser/pijector/admin"
 	"github.com/cfunkhouser/pijector/api"
-	"github.com/cfunkhouser/pijector/client"
 	"github.com/gorilla/mux"
 	"github.com/urfave/cli/v2"
 )
@@ -67,7 +67,7 @@ func serveAPI(c *cli.Context) error {
 	}
 	r := mux.NewRouter()
 	api.ConfigureV1(r, kiosks)
-	r.PathPrefix("/").HandlerFunc(client.StaticHandler)
+	r.PathPrefix("/").HandlerFunc(admin.Handler)
 	http.Handle("/", r)
 	return http.ListenAndServe(c.String("listen"), nil)
 }
