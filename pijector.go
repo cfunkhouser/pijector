@@ -26,12 +26,15 @@ import (
 )
 
 var (
-	pijectorV1Space = uuid.Must(uuid.Parse("ed77ce29-9f8f-4d4c-87c3-91078f49e9f9"))
-	localKioskSpace = uuid.NewSHA1(pijectorV1Space, uuid.NodeID())
+	// Version of Pijector. Overridden at build time.
+	Version = "development"
+
+	pijectorGlobalSpace = uuid.Must(uuid.Parse("ed77ce29-9f8f-4d4c-87c3-91078f49e9f9"))
+	pijectorLocalSpace  = uuid.NewSHA1(pijectorGlobalSpace, uuid.NodeID())
 )
 
 func localScreenID(addr string) string {
-	return uuid.NewSHA1(localKioskSpace, []byte(addr)).String()
+	return uuid.NewSHA1(pijectorLocalSpace, []byte(addr)).String()
 }
 
 // ScreenStatus contains information about a Screen's current display.
@@ -294,49 +297,4 @@ func AttachRemote(u, password string, opts ...RemoteOption) (Screen, error) {
 		url:      u,
 		password: password,
 	}, nil
-}
-
-type Kiosk struct {
-	id, name string
-	screens  map[string]Screen
-}
-
-func (k *Kiosk) ID() string {
-	return k.id
-}
-
-func (k *Kiosk) Name() string {
-	return k.name
-}
-
-func (k *Kiosk) Screens() []string {
-	disps := make([]string, len(k.screens))
-	var i int
-	for id := range k.screens {
-		disps[i] = id
-		i++
-	}
-	return disps
-}
-
-var errNoSuchScreen = errors.New("no such screen")
-
-func (k *Kiosk) Screen(id string) (Screen, error) {
-	d, has := k.screens[id]
-	if !has {
-		return nil, errNoSuchScreen
-	}
-	return d, nil
-}
-
-func New(name string, screens []Screen) *Kiosk {
-	k := &Kiosk{
-		name:    name,
-		id:      localKioskSpace.String(),
-		screens: make(map[string]Screen),
-	}
-	for _, s := range screens {
-		k.screens[s.ID()] = s
-	}
-	return k
 }

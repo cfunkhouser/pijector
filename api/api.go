@@ -114,15 +114,14 @@ func (v *v1) getDisplays(w http.ResponseWriter, r *http.Request) {
 const V1APIPrefix = "/api/v1"
 
 // HandleV1 API at V1APIPrefix under the router.
-func HandleV1(router *mux.Router, kiosk *pijector.Kiosk) {
+func HandleV1(router *mux.Router, screens []pijector.Screen) {
 	r := router.PathPrefix(V1APIPrefix).Subrouter().StrictSlash(true)
-	screens := kiosk.Screens()
 	api := &v1{
 		screenDetails: make([]*screenDetail, len(screens)),
 	}
-	for i, sid := range screens {
-		s, _ := kiosk.Screen(sid)
+	for i, s := range screens {
 		v1HandleScreen(r, s)
+		sid := s.ID()
 		api.screenDetails[i] = &screenDetail{
 			URL: fmt.Sprintf("/api/v1/screen/%v", sid),
 			ID:  sid,
@@ -132,8 +131,8 @@ func HandleV1(router *mux.Router, kiosk *pijector.Kiosk) {
 }
 
 // New V1 Pijector API handler.
-func New(k *pijector.Kiosk) http.Handler {
+func New(screens []pijector.Screen) http.Handler {
 	r := mux.NewRouter()
-	HandleV1(r, k)
+	HandleV1(r, screens)
 	return r
 }

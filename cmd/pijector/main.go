@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 
@@ -13,35 +14,32 @@ import (
 )
 
 var (
-	// Version of pijector. Overridden at build time.
-	Version = "development"
-
-	defaultKioskAddress    = "127.0.0.1:9222"
-	defaultListenAddress   = "0.0.0.0:9292"
-	defaultKioskDisplayURL = "http://localhost:9292/"
+	defaultPijectorListenAddr = "0.0.0.0:9292"
+	defaultPijectorScreenAddr = "127.0.0.1:9222"
+	defaultPijectorScreenURL  = "http://localhost:9292/"
 
 	commonFlags = []cli.Flag{
 		&cli.StringSliceFlag{
-			Name:    "kiosk",
-			Aliases: []string{"k"},
-			Usage:   "ip:port on which Chromium Kiosk's debugger is listening",
-			EnvVars: []string{"PIJECTOR_KIOSK_ADDRESS"},
-			Value:   cli.NewStringSlice(defaultKioskAddress),
+			Name:    "screen",
+			Aliases: []string{"s"},
+			Usage:   "ip:port on which a Chromium debugger is listening. May be repeated.",
+			EnvVars: []string{"PIJECTOR_SCREEN_ADDRESS"},
+			Value:   cli.NewStringSlice(defaultPijectorScreenAddr),
 		},
 		&cli.StringFlag{
 			Name:    "default-url",
 			Aliases: []string{"d"},
-			Usage:   "Default URL to open in the Chromium Kiosk",
-			EnvVars: []string{"PIJECTOR_KIOSK_DEFAULT_URL"},
-			Value:   defaultKioskDisplayURL,
+			Usage:   "Default URL to open on Pijector Screens",
+			EnvVars: []string{"PIJECTOR_SCREEN_DEFAULT_URL"},
+			Value:   defaultPijectorScreenURL,
 		},
 	}
 )
 
-func getCommonFlags(c *cli.Context) (ks []string, d string, err error) {
-	ks = c.StringSlice("kiosk")
-	if len(ks) < 1 {
-		err = cli.Exit("kiosk must be set", 1)
+func getCommonFlags(c *cli.Context) (ps []string, d string, err error) {
+	ps = c.StringSlice("screen")
+	if len(ps) < 1 {
+		err = cli.Exit("at least one screen must be specified", 1)
 		return
 	}
 	d = c.String("default-url")
@@ -51,38 +49,48 @@ func getCommonFlags(c *cli.Context) (ks []string, d string, err error) {
 	return
 }
 
-func serveAPI(c *cli.Context) error {
-	ks, d, err := getCommonFlags(c)
+func serve(c *cli.Context) error {
+	done := make(chan error)
+	ps, d, err := getCommonFlags(c)
 	if err != nil {
 		return err
 	}
-	var kiosks []*pijector.Kiosk
-	for _, ka := range ks {
-		k, err := pijector.Dial(ka)
+	var screens []pijector.Screen
+	for _, saddr := range ps {
+		s, err := pijector.AttachLocal("", saddr)
 		if err != nil {
 			return cli.Exit(err, 1)
 		}
-		kiosks = append(kiosks, k)
-		go func() { _ = k.Show(d) }()
+		screens = append(screens, s)
 	}
 	r := mux.NewRouter()
-	api.ConfigureV1(r, kiosks)
+	api.HandleV1(r, screens)
 	r.PathPrefix("/").HandlerFunc(admin.Handler)
 	http.Handle("/", r)
-	return http.ListenAndServe(c.String("listen"), nil)
+
+	go func(errs chan<- error, addr string) {
+		errs <- http.ListenAndServe(c.String("listen"), nil)
+	}(done, c.String("listen"))
+
+	for _, s := range screens {
+		_ = s.Show(d)
+	}
+
+	err = <-done
+	return err
 }
 
 func show(c *cli.Context) error {
-	ks, d, err := getCommonFlags(c)
+	ps, d, err := getCommonFlags(c)
 	if err != nil {
 		return err
 	}
-	for _, ka := range ks {
-		k, err := pijector.Dial(ka)
+	for _, saddr := range ps {
+		s, err := pijector.AttachLocal("", saddr)
 		if err != nil {
 			return cli.Exit(err, 1)
 		}
-		if err := k.Show(d); err != nil {
+		if err := s.Show(d); err != nil {
 			return cli.Exit(err, 1)
 		}
 	}
@@ -90,14 +98,14 @@ func show(c *cli.Context) error {
 }
 
 func snap(c *cli.Context) error {
-	ks, _, err := getCommonFlags(c)
+	ps, _, err := getCommonFlags(c)
 	if err != nil {
 		return err
 	}
-	if len(ks) != 1 {
-		return cli.Exit("snap really only makes sense with one kiosk", 1)
+	if len(ps) != 1 {
+		return cli.Exit("snap really only makes sense with one screen", 1)
 	}
-	k, err := pijector.Dial(ks[0])
+	s, err := pijector.AttachLocal("", ps[0])
 	if err != nil {
 		return cli.Exit(err, 1)
 	}
@@ -105,7 +113,7 @@ func snap(c *cli.Context) error {
 	if o == "" {
 		return cli.Exit("output must be set", 1)
 	}
-	data, err := k.Screenshot()
+	snap, err := s.Snap()
 	if err != nil {
 		return cli.Exit(err, 1)
 	}
@@ -113,7 +121,7 @@ func snap(c *cli.Context) error {
 	if err != nil {
 		return cli.Exit(err, 1)
 	}
-	if _, err := of.Write(data); err != nil {
+	if _, err := io.Copy(of, snap); err != nil {
 		return cli.Exit(err, 1)
 	}
 	return nil
@@ -123,7 +131,7 @@ func main() {
 	app := &cli.App{
 		Name:    "pijector",
 		Usage:   "Turns a Chromium browser in debug mode into a Kiosk display.",
-		Version: Version,
+		Version: pijector.Version,
 		Commands: []*cli.Command{
 			{
 				Name: "server",
@@ -131,10 +139,10 @@ func main() {
 					Name:    "listen",
 					Aliases: []string{"L"},
 					Usage:   "ip:port on which to serve API requests",
-					Value:   defaultListenAddress,
+					Value:   defaultPijectorListenAddr,
 				}),
 				Usage:  "Run the pijector server",
-				Action: serveAPI,
+				Action: serve,
 			},
 			{
 				Name:   "show",
