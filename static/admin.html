@@ -2,7 +2,7 @@
 <html>
 
 <head>
-    <title>Pijector Kiosk</title>
+    <title>Pijector Control</title>
     <link href="/pijector.css" rel="stylesheet" />
 </head>
 
@@ -10,7 +10,7 @@
     <script type="text/javascript" src="/jquery-3.6.0.min.js"></script>
     <script type="text/javascript">
         ((window) => {
-            let CURRENT_KIOSK_URL;
+            let CURRENT_SCREEN_URL;
             const
                 SECONDS = 1000,
                 ERROR_DISPLAY_INTERVAL = SECONDS * 15,
@@ -22,13 +22,14 @@
                 }).text();
             };
             const populateStatus = (status) => {
-                const safeUrl = safen(status.url);
+                const display = status.display;
+                const safeUrl = safen(display.url);
                 $('#status-content').html(`<div>
-                <div><span class="status-label">Displaying:</span> ${safen(status.title)}</div>
+                <div><span class="status-label">Displaying:</span> ${safen(display.title)}</div>
                 <div><span class="status-label">At URL:</span> <a href="${safeUrl}">${safeUrl}</a></div>
             </div>`);
-                if (status.screenshot) {
-                    $('img#snap').attr('src', status.screenshot);
+                if (status.snap) {
+                    $('img#snap').attr('src', status.snap);
                 }
             };
             const handleFail = (jqXhr, unused, err) => {
@@ -56,45 +57,45 @@
                 }, ERROR_DISPLAY_INTERVAL + 50);
             };
             const triggerStatusLoad = () => {
-                console.log(`Fetching Kiosk ${CURRENT_KIOSK_URL}`);
-                $.get(CURRENT_KIOSK_URL).done(populateStatus).fail(handleFail);
+                console.log(`Fetching Screen ${CURRENT_SCREEN_URL}`);
+                $.get(CURRENT_SCREEN_URL).done(populateStatus).fail(handleFail);
             };
             const statusUpdateLoop = () => {
                 triggerStatusLoad();
                 setTimeout(statusUpdateLoop, STATUS_UPDATE_INTERVAL);
             };
-            const discoverKiosks = () => {
-                $.get('/api/v1/kiosk').done(handleKioskDiscovery).fail(handleFail);
+            const discoverScreens = () => {
+                $.get('/api/v1/screen').done(handleScreenDiscovery).fail(handleFail);
             };
-            const handleKioskDiscovery = (payload) => {
-                const kioskSelect = $('#kiosk-select');
-                kioskSelect.empty();
-                if (payload.kiosks) {
-                    $.each(payload.kiosks, (idx, kiosk) => {
-                        const optName = kiosk.name || kiosk.id;
-                        const opt = $(`<option value="${safen(kiosk.id)}">${safen(optName)}</option>`);
-                        if ((!CURRENT_KIOSK_URL && !idx) || (kiosk.url == CURRENT_KIOSK_URL)) {
+            const handleScreenDiscovery = (payload) => {
+                const screenSelect = $('#screen-select');
+                screenSelect.empty();
+                if (payload.screens) {
+                    $.each(payload.screens, (idx, screen) => {
+                        const optName = screen.name || screen.id;
+                        const opt = $(`<option value="${safen(screen.id)}">${safen(optName)}</option>`);
+                        if ((!CURRENT_SCREEN_URL && !idx) || (screen.url == CURRENT_SCREEN_URL)) {
                             opt.attr('selected', 'selected');
                         }
-                        kioskSelect.append(opt);
+                        screenSelect.append(opt);
                     });
                 }
-                if (!CURRENT_KIOSK_URL) {
-                    adminKiosk(payload.kiosks[0].id);
+                if (!CURRENT_SCREEN_URL) {
+                    adminScreen(payload.screens[0].id);
                 }
             };
-            const adminKiosk = (kioskId) => {
-                CURRENT_KIOSK_URL = `/api/v1/kiosk/${kioskId}`;
+            const adminScreen = (screenId) => {
+                CURRENT_SCREEN_URL = `/api/v1/screen/${screenId}`;
                 triggerStatusLoad();
             };
             $(window).on('load', function() {
-                discoverKiosks();
-                $('#kiosk-select').change(() => {
-                    adminKiosk($('#kiosk-select option:selected').first().attr('value'));
+                discoverScreens();
+                $('#screen-select').change(() => {
+                    adminScreen($('#screen-select option:selected').first().attr('value'));
                 });
                 $('#show-control').submit((event) => {
                     event.preventDefault();
-                    $.get(`${CURRENT_KIOSK_URL}/show`, {
+                    $.get(`${CURRENT_SCREEN_URL}/show`, {
                         target: $('#target-url').val()
                     }).done(populateStatus).fail(handleFail);
                 });
@@ -109,8 +110,8 @@
             </div>
             <div class="flex-child">
                 <h1>Pijector Control</h1>
-                <label for="kiosk-select">Kiosk:</label>
-                <select name="kiosk-select" id="kiosk-select"></select>
+                <label for="screen-select">Screen:</label>
+                <select name="screen-select" id="screen-select"></select>
                 <div id="status-content" class="status-container"></div>
                 <div id="control-content" class="status-container">
                     <form id="show-control" method="get">

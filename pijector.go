@@ -74,7 +74,7 @@ func (s *localScreen) ID() string {
 
 func (s *localScreen) Name() string {
 	if s.name == "" {
-		return s.id
+		return s.addr
 	}
 	return s.name
 }

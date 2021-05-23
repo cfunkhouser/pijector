@@ -53,29 +53,51 @@ func (v *v1ScreenHandler) getSnap(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, snap)
 }
 
-type status struct {
-	pijector.ScreenStatus
-	SnapURL string `json:"snap,omitempty"`
+type screenDetail struct {
+	URL     string                `json:"url"`
+	ID      string                `json:"id"`
+	Name    string                `json:"name,omitempty"`
+	SnapURL string                `json:"snap,omitempty"`
+	Display pijector.ScreenStatus `json:"display"`
 }
 
-func cacheproofSnapURL(k pijector.Screen) string {
+func cacheproofSnapURL(s pijector.Screen) string {
 	n := time.Now().UTC().Format(time.RFC3339)
-	return fmt.Sprintf("/api/v1/screen/%v/snap?%v", k.ID(), n)
+	return fmt.Sprintf("/api/v1/screen/%v/snap?%v", s.ID(), n)
 }
 
+func screenDetails(s pijector.Screen) (*screenDetail, error) {
+	stat, err := s.Stat()
+	if err != nil {
+		return nil, err
+	}
+	sid := s.ID()
+	return &screenDetail{
+		URL:     fmt.Sprintf("/api/v1/screen/%v", sid),
+		ID:      sid,
+		Name:    s.Name(),
+		SnapURL: cacheproofSnapURL(s),
+		Display: stat,
+	}, nil
+}
+
+func screenToJSON(s pijector.Screen) ([]byte, error) {
+	m, err := screenDetails(s)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(m)
+}
 func (v *v1ScreenHandler) getStat(w http.ResponseWriter, r *http.Request) {
-	deets, err := v.s.Stat()
+	data, err := screenToJSON(v.s)
 	if err != nil {
 		w.WriteHeader(http.StatusBadGateway)
 		fmt.Fprintf(w, "The pijector screen couldn't provide its status: %v", err)
 		return
 	}
-	es := status{
-		ScreenStatus: deets,
-		SnapURL:      cacheproofSnapURL(v.s),
-	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if err := json.NewEncoder(w).Encode(&es); err != nil {
+	if _, err := w.Write(data); err != nil {
+		// Not much else we can do at this point.
 		w.WriteHeader(http.StatusInternalServerError)
 	}
 }
@@ -91,22 +113,27 @@ func v1HandleScreen(router *mux.Router, s pijector.Screen) {
 	r.Methods(http.MethodGet).Path("/stat").HandlerFunc(api.getStat)
 }
 
-type screenDetail struct {
-	URL  string `json:"url"`
-	ID   string `json:"id"`
-	Name string `json:"name,omitempty"`
-}
-
 type v1 struct {
-	screenDetails []*screenDetail
+	screens []pijector.Screen
 }
 
-func (v *v1) getDisplays(w http.ResponseWriter, r *http.Request) {
-	response := map[string][]*screenDetail{
-		"screens": v.screenDetails,
+type screensPayload struct {
+	Screens []*screenDetail `json:"screens"`
+}
+
+func (v *v1) getScreens(w http.ResponseWriter, r *http.Request) {
+	var sp screensPayload
+	for _, s := range v.screens {
+		deets, err := screenDetails(s)
+		if err != nil {
+			fmt.Fprintf(w, "Failed listing screens: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		sp.Screens = append(sp.Screens, deets)
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+	if err := json.NewEncoder(w).Encode(&sp); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 	}
 }
@@ -116,18 +143,12 @@ const V1APIPrefix = "/api/v1"
 // HandleV1 API at V1APIPrefix under the router.
 func HandleV1(router *mux.Router, screens []pijector.Screen) {
 	r := router.PathPrefix(V1APIPrefix).Subrouter().StrictSlash(true)
-	api := &v1{
-		screenDetails: make([]*screenDetail, len(screens)),
-	}
-	for i, s := range screens {
+	for _, s := range screens {
 		v1HandleScreen(r, s)
-		sid := s.ID()
-		api.screenDetails[i] = &screenDetail{
-			URL: fmt.Sprintf("/api/v1/screen/%v", sid),
-			ID:  sid,
-		}
 	}
-	r.Methods(http.MethodGet).Path("/screen").HandlerFunc(api.getDisplays)
+	r.Methods(http.MethodGet).Path("/screen").HandlerFunc((&v1{
+		screens: screens,
+	}).getScreens)
 }
 
 // New V1 Pijector API handler.
