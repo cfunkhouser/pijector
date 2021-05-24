@@ -60,11 +60,31 @@ type Screen interface {
 // localScreen controls a host-local Chromium instance via the Chrome Devtools
 // Protocol.
 type localScreen struct {
-	addr, id, name string
+	url, id, name string
 
-	sync.RWMutex // protects following members
-	browser      *rod.Browser
-	current      *rod.Page
+	sync.Mutex // protects following members
+	browser    *rod.Browser
+	current    *rod.Page
+}
+
+// attachIfNecessary connects to the chromium debugger lazily, when needed. This
+// allows the Pijector to be initialized before the Screen is actually available.
+// This function assumes the lock is held before calling.
+func (s *localScreen) attachIfNecessary() error {
+	browser := rod.New().ControlURL(s.url).DefaultDevice(devices.Clear)
+	if err := browser.Connect(); err != nil {
+		return err
+	}
+	pages, err := browser.Pages()
+	if err != nil {
+		return err
+	}
+	if _, err := pages[0].Activate(); err != nil {
+		return err
+	}
+	s.browser = browser
+	s.current = pages[0]
+	return nil
 }
 
 func (s *localScreen) ID() string {
@@ -73,7 +93,7 @@ func (s *localScreen) ID() string {
 
 func (s *localScreen) Name() string {
 	if s.name == "" {
-		return s.addr
+		return s.url
 	}
 	return s.name
 }
@@ -81,6 +101,9 @@ func (s *localScreen) Name() string {
 func (s *localScreen) Show(u string) error {
 	s.Lock()
 	defer s.Unlock()
+	if err := s.attachIfNecessary(); err != nil {
+		return err
+	}
 	var loadEvent proto.PageLoadEventFired
 	if err := s.current.Navigate(u); err != nil {
 		return err
@@ -90,12 +113,15 @@ func (s *localScreen) Show(u string) error {
 }
 
 func (s *localScreen) Snap() (io.ReadCloser, error) {
-	s.RLock()
+	s.Lock()
+	if err := s.attachIfNecessary(); err != nil {
+		return nil, err
+	}
 	ssReq := &proto.PageCaptureScreenshot{
 		Format: proto.PageCaptureScreenshotFormatPng,
 	}
 	data, err := s.current.Screenshot(false, ssReq)
-	s.RUnlock()
+	s.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -104,6 +130,12 @@ func (s *localScreen) Snap() (io.ReadCloser, error) {
 
 func (s *localScreen) Stat() (ScreenStatus, error) {
 	var stat ScreenStatus
+
+	s.Lock()
+	defer s.Unlock()
+	if err := s.attachIfNecessary(); err != nil {
+		return stat, err
+	}
 	info, err := s.current.Info()
 	if err != nil {
 		return stat, err
@@ -120,23 +152,10 @@ func AttachLocal(name, addr string) (Screen, error) {
 	if err != nil {
 		return nil, err
 	}
-	browser := rod.New().ControlURL(u).DefaultDevice(devices.Clear)
-	if err := browser.Connect(); err != nil {
-		return nil, err
-	}
-	pages, err := browser.Pages()
-	if err != nil {
-		return nil, err
-	}
-	if _, err := pages[0].Activate(); err != nil {
-		return nil, err
-	}
 	return &localScreen{
-		addr:    addr,
-		id:      localScreenID(addr),
-		name:    name,
-		browser: browser,
-		current: pages[0],
+		url:  u,
+		id:   localScreenID(addr),
+		name: name,
 	}, nil
 }
 

@@ -82,10 +82,16 @@ func serve(c *cli.Context) error {
 	}(done, cfg.Listen)
 
 	for _, s := range screens {
-		_ = s.Show(cfg.DefaultURL)
+		if err := s.Show(cfg.DefaultURL); err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"target": cfg.DefaultURL,
+				"screen": s.ID(),
+			}).Warning("failed to Show URL")
+		}
 	}
 
 	err = <-done
+	logrus.WithError(err).Infof("server done listening")
 	return err
 }
 
