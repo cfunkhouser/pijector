@@ -60,7 +60,7 @@ type Screen interface {
 // localScreen controls a host-local Chromium instance via the Chrome Devtools
 // Protocol.
 type localScreen struct {
-	url, id, name string
+	addr, id, name string
 
 	sync.Mutex // protects following members
 	browser    *rod.Browser
@@ -71,7 +71,11 @@ type localScreen struct {
 // allows the Pijector to be initialized before the Screen is actually available.
 // This function assumes the lock is held before calling.
 func (s *localScreen) attachIfNecessary() error {
-	browser := rod.New().ControlURL(s.url).DefaultDevice(devices.Clear)
+	u, err := launcher.ResolveURL(s.addr)
+	if err != nil {
+		return err
+	}
+	browser := rod.New().ControlURL(u).DefaultDevice(devices.Clear)
 	if err := browser.Connect(); err != nil {
 		return err
 	}
@@ -93,7 +97,7 @@ func (s *localScreen) ID() string {
 
 func (s *localScreen) Name() string {
 	if s.name == "" {
-		return s.url
+		return s.addr
 	}
 	return s.name
 }
@@ -148,12 +152,8 @@ func (s *localScreen) Stat() (ScreenStatus, error) {
 // AttachLocal attaches a local Chromium instance via CDP at the provided addr,
 // and identifies it in Pijector with the provided human-friendly name.
 func AttachLocal(name, addr string) (Screen, error) {
-	u, err := launcher.ResolveURL(addr)
-	if err != nil {
-		return nil, err
-	}
 	return &localScreen{
-		url:  u,
+		addr: addr,
 		id:   localScreenID(addr),
 		name: name,
 	}, nil

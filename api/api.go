@@ -12,6 +12,7 @@ import (
 
 	"github.com/cfunkhouser/pijector"
 	"github.com/gorilla/mux"
+	"github.com/sirupsen/logrus"
 )
 
 type v1ScreenHandler struct {
@@ -23,6 +24,7 @@ func (v *v1ScreenHandler) getShow(w http.ResponseWriter, r *http.Request) {
 	if u == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprint(w, "target parameter is required")
+		logrus.WithField("client", r.RemoteAddr).Info("bad request, no target")
 		return
 	}
 	if !(strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://")) {
@@ -31,12 +33,14 @@ func (v *v1ScreenHandler) getShow(w http.ResponseWriter, r *http.Request) {
 	saneURL, err := url.ParseRequestURI(u)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "Provided target %q is not a real URL", u)
+		fmt.Fprintf(w, "target %q is not a real URL", u)
+		logrus.WithError(err).WithField("client", r.RemoteAddr).Info("bad request, bad target")
 		return
 	}
 	if err := v.s.Show(saneURL.String()); err != nil {
 		w.WriteHeader(http.StatusBadGateway)
-		fmt.Fprintf(w, "The pijector screen couldn't show %q: %v", u, err)
+		fmt.Fprintf(w, "screen couldn't show %q: %v", u, err)
+		logrus.WithError(err).WithField("client", r.RemoteAddr).Warn("show failed")
 		return
 	}
 	v.getStat(w, r)
@@ -46,7 +50,8 @@ func (v *v1ScreenHandler) getSnap(w http.ResponseWriter, r *http.Request) {
 	snap, err := v.s.Snap()
 	if err != nil {
 		w.WriteHeader(http.StatusBadGateway)
-		fmt.Fprintf(w, "The screen couldn't provide a snapshot: %v", err)
+		fmt.Fprintf(w, "screen couldn't provide a snapshot: %v", err)
+		logrus.WithError(err).WithField("client", r.RemoteAddr).Warn("snap failed")
 		return
 	}
 	w.Header().Set("Content-Type", "image/png")
@@ -93,13 +98,14 @@ func (v *v1ScreenHandler) getStat(w http.ResponseWriter, r *http.Request) {
 	data, err := screenToJSON(v.s)
 	if err != nil {
 		w.WriteHeader(http.StatusBadGateway)
-		fmt.Fprintf(w, "The pijector screen couldn't provide its status: %v", err)
+		fmt.Fprintf(w, "screen couldn't provide status: %v", err)
+		logrus.WithError(err).WithField("client", r.RemoteAddr).Warn("stat failed")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	if _, err := w.Write(data); err != nil {
 		// Not much else we can do at this point.
-		w.WriteHeader(http.StatusInternalServerError)
+		logrus.WithError(err).WithField("client", r.RemoteAddr).Error("returning stat payload failed")
 	}
 }
 
@@ -127,15 +133,15 @@ func (v *v1) getScreens(w http.ResponseWriter, r *http.Request) {
 	for _, s := range v.screens {
 		deets, err := screenDetails(s)
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			fmt.Fprintf(w, "Failed listing screens: %v", err)
-			return
+			logrus.WithError(err).WithField("screen", s.ID()).Warn("skipping unreachable screen")
+			continue
 		}
 		sp.Screens = append(sp.Screens, deets)
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	if err := json.NewEncoder(w).Encode(&sp); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+		// Not much else we can do at this point.
+		logrus.WithError(err).WithField("client", r.RemoteAddr).Error("returning screens payload failed")
 	}
 }
 

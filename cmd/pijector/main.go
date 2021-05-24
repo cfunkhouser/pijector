@@ -63,9 +63,11 @@ func serve(c *cli.Context) error {
 	var screens []pijector.Screen
 	for _, scfg := range cfg.Screens {
 		s, err := scfg.attach()
-		logrus.WithField("address", scfg.Address).Info("attached to screen")
 		if err != nil {
-			return cli.Exit(err, 1)
+			logrus.WithError(err).WithField("address", scfg.Address).Warn("attach failed")
+			// return cli.Exit(err, 1)
+		} else {
+			logrus.WithField("address", scfg.Address).Info("attached to screen")
 		}
 		screens = append(screens, s)
 	}
@@ -86,7 +88,7 @@ func serve(c *cli.Context) error {
 			logrus.WithError(err).WithFields(logrus.Fields{
 				"target": cfg.DefaultURL,
 				"screen": s.ID(),
-			}).Warning("failed to Show URL")
+			}).Warning("show failed")
 		}
 	}
 
