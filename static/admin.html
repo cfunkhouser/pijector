@@ -42,19 +42,24 @@
                 console.error(msg);
                 showAnError(msg);
             };
-            const showAnError = (msg) => {
+            const showAnError = (msg, sticky = false) => {
                 const errNode = $(`<div class="error flex-child">
-                <div><p>Oh no:</p></div>
                 <div class="error-message"><code>${safen(msg)}</code></div>
             </div>`);
-                errNode.css('display', 'none')
-                    .appendTo($('#error-content'))
-                    .fadeIn(ERROR_FADE_DURATION)
-                    .delay(ERROR_DISPLAY_INTERVAL)
-                    .fadeOut(ERROR_FADE_DURATION);
-                setTimeout(() => {
-                    errNode.remove();
-                }, ERROR_DISPLAY_INTERVAL + 50);
+                if (!sticky) {
+                    errNode.css('display', 'none')
+                        .appendTo($('#error-content'))
+                        .fadeIn(ERROR_FADE_DURATION)
+                        .delay(ERROR_DISPLAY_INTERVAL)
+                        .fadeOut(ERROR_FADE_DURATION);
+                    setTimeout(() => {
+                        errNode.remove();
+                    }, ERROR_DISPLAY_INTERVAL + 50);
+                } else {
+                    errNode.css('display', 'none')
+                        .appendTo($('#error-content'))
+                        .fadeIn(ERROR_FADE_DURATION);
+                }
             };
             const triggerStatusLoad = () => {
                 console.log(`Fetching Screen ${CURRENT_SCREEN_URL}`);
@@ -79,6 +84,8 @@
                         }
                         screenSelect.append(opt);
                     });
+                } else {
+                    showAnError('No screens available!', true);
                 }
                 if (!CURRENT_SCREEN_URL) {
                     adminScreen(payload.screens[0].id);
