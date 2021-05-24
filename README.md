@@ -22,53 +22,135 @@ $ chromium-browser \
 DevTools listening on ws://127.0.0.1:9222/devtools/browser/b2d22b3a-dd60-4aa8-86fc-fa494d90e1dc
 ```
 
-Then, point the Pijector server at the remote debugger port.
+For testing and development purposes, you may use
+[`bin/start-screen.sh`](bin/start-screen.sh).
+
+Then, configure the Pijector server to control the chromium(s) you started. This
+will require a bit of YAML.
+
+```yaml
+---
+listen: 0.0.0.0:9292
+default_url: https://en.wikipedia.org/wiki/Special:Random
+screens:
+  - name: Test Screen 1
+    address: localhost:9223
+```
+
+Then run the server, given the above config as `pijector-dev.yml`:
 
 ```console
 $ pijector server --help
 NAME:
-   pijector-linux-amd64 server - Run the pijector server
+   pijector server - Run the pijector server
 
 USAGE:
-   pijector-linux-amd64 server [command options] [arguments...]
+   pijector server [command options] [arguments...]
 
 OPTIONS:
-   --kiosk value, -k value        ip:port on which Chromium Kiosk's debugger is listening (default: "127.0.0.1:9222") [$PIJECTOR_KIOSK_ADDRESS]
-   --listen value, -L value       ip:port on which to serve API requests (default: "0.0.0.0:9292")
-   --default-url value, -d value  Default URL to open in the Chromium Kiosk (default: "http://localhost:9292/") [$PIJECTOR_KIOSK_DEFAULT_URL]
-   --help, -h                     show help (default: false)
-$ pijector server -k localhost:9222
-
+   --config value, -c value  Path to server configuration file.
+   --help, -h                show help (default: false)
+$ pijector server -c pijector-dev.yml
+DEBU[0000] Loaded config: {Listen:0.0.0.0:9292 DefaultURL:https://en.wikipedia.org/wiki/Special:Random Screens:[{Name:Test Screen 1 Address:localhost:9223}]}
+INFO[0000] attached to screen                            address="localhost:9223"
+INFO[0000] server listening on 0.0.0.0:9292
 ```
 
-As soon as the Pijector server starts, it will take control of the Chromium
-instance. It will navigate to the pijector default page, and come to the
+As soon as the Pijector server starts, it will attempt to take control of the
+Chromium instance, navigate it to the pijector default page, and bring it to the
 foreground.
 
-## Control
+## Controlling the Pijector
 
-Pijector serves a control interface at
-[localhost:9292/admin](http://localhost:9292/admin) by default. It has a very
-simple interface which allows the user to select a kiosk display and modify the
-URL it is displaying.
+Pijector exposes a simple admin user interface at `/admin` on its bound address
+([localhost:9292/admin](http://localhost:9292/admin) by default).
 
 ![Pijector Admin Page Screenshot](doc/adminscreenshot.png)
 
-### API
+## API
 
-There is an incredibly simple API, which the admin interface uses to discover
-and control kiosks.
+The Pijector API is quite simple. The admin interface uses it to discover and control screens, and other Pijectors may use it to control screens on remote Pijectors (see below).
 
-- `GET /api/v1/kiosk` will return an object describing the kiosks controlled by
-  the Pijector instance.
+- `GET /api/v1/screen` will return an object describing the screens controlled
+  by the Pijector instance.
 
-- `GET /api/v1/kiosk/$KIOSKID` will return details about the kiosk's current
+  For example:
+
+  ```json
+  {
+    "screens": [
+      {
+        "url": "/api/v1/screen/91d21a4b-452d-43f7-a6bd-53797114242d",
+        "id": "91d21a4b-452d-43f7-a6bd-53797114242d",
+        "name": "Left Shoulder",
+        "snap": "/api/v1/screen/91d21a4b-452d-43f7-a6bd-53797114242d/snap?2021-05-24T17:31:46Z",
+        "display": {
+          "title": "Aidan Roark - Wikipedia",
+          "url": "https://en.wikipedia.org/wiki/Aidan_Roark"
+        }
+      },
+      {
+        "url": "/api/v1/screen/3b941997-b50f-4798-83ba-675c697dad61",
+        "id": "3b941997-b50f-4798-83ba-675c697dad61",
+        "name": "Remote Screen",
+        "snap": "/api/v1/screen/3b941997-b50f-4798-83ba-675c697dad61/snap?2021-05-24T17:31:46Z",
+        "display": {
+          "title": "1945 All-Big Ten Conference football team - Wikipedia",
+          "url": "https://en.wikipedia.org/wiki/1945_All-Big_Ten_Conference_football_team"
+        }
+      }
+    ]
+  }
+  ```
+
+- `GET /api/v1/screen/$SCREENID` will return details about the screen's current
   display.
 
-- `GET /api/v1/kiosk/$KIOSKID/stat` is an alias for `/api/v1/kiosk/$KIOSKID`
+  For example:
 
-- `GET /api/v1/kiosk/$KIOSKID/show?target=$TARGETURL` will instruct the kiosk to
-  display the provided `$TARGETURL`.
+  ```json
+  {
+    "url": "/api/v1/screen/91d21a4b-452d-43f7-a6bd-53797114242d",
+    "id": "91d21a4b-452d-43f7-a6bd-53797114242d",
+    "name": "Left Shoulder",
+    "snap": "/api/v1/screen/91d21a4b-452d-43f7-a6bd-53797114242d/snap?2021-05-24T17:31:46Z",
+    "display": {
+      "title": "Aidan Roark - Wikipedia",
+      "url": "https://en.wikipedia.org/wiki/Aidan_Roark"
+    }
+  }
+  ```
 
-- `GET /api/v1/kiosk/$KIOSKID/snap` will return a full-resolution PNG screenshot
-  of the kiosk's current display.
+- `GET /api/v1/screen/$SCREENID/stat` is an alias for `/api/v1/screen/$SCREENID`
+
+- `GET /api/v1/screen/$SCREENID/show?target=$TARGETURL` will instruct the screen
+  to display the provided `$TARGETURL`. On success, it will wait for the page to
+  be displayed, and then return a `/stat` payload (as above) with the new
+  details.
+
+- `GET /api/v1/screen/$SCREENID/snap` will return a full-resolution PNG
+  screenshot of the screen's current display.
+
+
+## Aggregating Screens
+
+Since the Chromium / Google Chrome debugger refuses to bind to non-local
+(`127.0.0.1`, etc) addresses, a Pijector server will not be able to directly
+control a Chromium screen on another host. However, Pijector can use the API on
+another Pijector instance to virtually attach screens from other Pijector
+instances. This means that at least one Pijector server must be running on each
+Pijector host, but they can all be aggregated for control on a single server.
+
+Pijector will know what you mean if you configure the address of a screen to
+contain a screen API URL. For example:
+
+```yaml
+---
+listen: 0.0.0.0:9292
+default_url: https://en.wikipedia.org/wiki/Special:Random
+screens:
+  - name: Local Screen
+    address: localhost:9223
+  - name: Remote Screen
+    address: http://other.host:9292/api/v1/screen/3b941997-b50f-4798-83ba-675c697dad61
+```

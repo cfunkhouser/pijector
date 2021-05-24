@@ -4,34 +4,27 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/cfunkhouser/pijector"
-	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"github.com/sirupsen/logrus"
 )
 
-const pijectorV1NamespaceUUI = "ed77ce29-9f8f-4d4c-87c3-91078f49e9f9"
-
-var spaceV1 = uuid.Must(uuid.Parse(pijectorV1NamespaceUUI))
-
-func kioskID(k *pijector.Kiosk) string {
-	return uuid.NewSHA1(spaceV1, []byte(k.Address())).String()
+type v1ScreenHandler struct {
+	s pijector.Screen
 }
 
-type v1KioskHandler struct {
-	k *pijector.Kiosk
-}
-
-func (v *v1KioskHandler) getShow(w http.ResponseWriter, r *http.Request) {
+func (v *v1ScreenHandler) getShow(w http.ResponseWriter, r *http.Request) {
 	u := r.URL.Query().Get("target")
 	if u == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprint(w, "target parameter is required")
+		logrus.WithField("client", r.RemoteAddr).Info("bad request, no target")
 		return
 	}
 	if !(strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://")) {
@@ -40,60 +33,86 @@ func (v *v1KioskHandler) getShow(w http.ResponseWriter, r *http.Request) {
 	saneURL, err := url.ParseRequestURI(u)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "Provided target %q is not a real URL", u)
+		fmt.Fprintf(w, "target %q is not a real URL", u)
+		logrus.WithError(err).WithField("client", r.RemoteAddr).Info("bad request, bad target")
 		return
 	}
-	if err := v.k.Show(saneURL.String()); err != nil {
+	if err := v.s.Show(saneURL.String()); err != nil {
 		w.WriteHeader(http.StatusBadGateway)
-		fmt.Fprintf(w, "The Kiosk couldn't display %q: %v", u, err)
+		fmt.Fprintf(w, "screen couldn't show %q: %v", u, err)
+		logrus.WithError(err).WithField("client", r.RemoteAddr).Warn("show failed")
 		return
 	}
 	v.getStat(w, r)
 }
 
-func (v *v1KioskHandler) getSnap(w http.ResponseWriter, r *http.Request) {
-	data, err := v.k.Screenshot()
+func (v *v1ScreenHandler) getSnap(w http.ResponseWriter, r *http.Request) {
+	snap, err := v.s.Snap()
 	if err != nil {
 		w.WriteHeader(http.StatusBadGateway)
-		fmt.Fprintf(w, "The Kiosk couldn't provide a screenshot: %v", err)
+		fmt.Fprintf(w, "screen couldn't provide a snapshot: %v", err)
+		logrus.WithError(err).WithField("client", r.RemoteAddr).Warn("snap failed")
 		return
 	}
 	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	_, _ = w.Write(data)
+	_, _ = io.Copy(w, snap)
 }
 
-type status struct {
-	pijector.Details
-	ScreenshotURL string `json:"screenshot,omitempty"`
+type screenDetail struct {
+	URL     string                `json:"url"`
+	ID      string                `json:"id"`
+	Name    string                `json:"name,omitempty"`
+	SnapURL string                `json:"snap,omitempty"`
+	Display pijector.ScreenStatus `json:"display"`
 }
 
-func cacheproofSnapURL(k *pijector.Kiosk) string {
+func cacheproofSnapURL(s pijector.Screen) string {
 	n := time.Now().UTC().Format(time.RFC3339)
-	return fmt.Sprintf("/api/v1/kiosk/%v/snap?%v", kioskID(k), n)
+	return fmt.Sprintf("/api/v1/screen/%v/snap?%v", s.ID(), n)
 }
 
-func (v *v1KioskHandler) getStat(w http.ResponseWriter, r *http.Request) {
-	deets, err := v.k.Details()
+func screenDetails(s pijector.Screen) (*screenDetail, error) {
+	stat, err := s.Stat()
+	if err != nil {
+		return nil, err
+	}
+	sid := s.ID()
+	return &screenDetail{
+		URL:     fmt.Sprintf("/api/v1/screen/%v", sid),
+		ID:      sid,
+		Name:    s.Name(),
+		SnapURL: cacheproofSnapURL(s),
+		Display: stat,
+	}, nil
+}
+
+func screenToJSON(s pijector.Screen) ([]byte, error) {
+	m, err := screenDetails(s)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(m)
+}
+
+func (v *v1ScreenHandler) getStat(w http.ResponseWriter, r *http.Request) {
+	data, err := screenToJSON(v.s)
 	if err != nil {
 		w.WriteHeader(http.StatusBadGateway)
-		fmt.Fprintf(w, "The Kiosk couldn't provide a screenshot: %v", err)
+		fmt.Fprintf(w, "screen couldn't provide status: %v", err)
+		logrus.WithError(err).WithField("client", r.RemoteAddr).Warn("stat failed")
 		return
 	}
-	es := status{
-		Details:       *deets,
-		ScreenshotURL: cacheproofSnapURL(v.k),
-	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if err := json.NewEncoder(w).Encode(&es); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+	if _, err := w.Write(data); err != nil {
+		// Not much else we can do at this point.
+		logrus.WithError(err).WithField("client", r.RemoteAddr).Error("returning stat payload failed")
 	}
 }
 
-func v1HandleKiosk(router *mux.Router, k *pijector.Kiosk) {
-	r := router.PathPrefix(fmt.Sprintf("/kiosk/%v", kioskID(k))).Subrouter().StrictSlash(true)
-	api := &v1KioskHandler{
-		k: k,
+func v1HandleScreen(router *mux.Router, s pijector.Screen) {
+	r := router.PathPrefix(fmt.Sprintf("/screen/%v", s.ID())).Subrouter().StrictSlash(true)
+	api := &v1ScreenHandler{
+		s: s,
 	}
 	r.Methods(http.MethodGet).Path("/").HandlerFunc(api.getStat)
 	r.Methods(http.MethodGet).Path("/show").HandlerFunc(api.getShow)
@@ -101,47 +120,47 @@ func v1HandleKiosk(router *mux.Router, k *pijector.Kiosk) {
 	r.Methods(http.MethodGet).Path("/stat").HandlerFunc(api.getStat)
 }
 
-type kioskDetails struct {
-	URL  string `json:"url"`
-	ID   string `json:"id"`
-	Name string `json:"name,omitempty"`
-}
-
 type v1 struct {
-	kioskDetails []*kioskDetails
+	screens []pijector.Screen
 }
 
-func (v *v1) getKiosks(w http.ResponseWriter, r *http.Request) {
-	response := map[string][]*kioskDetails{
-		"kiosks": v.kioskDetails,
+type screensPayload struct {
+	Screens []*screenDetail `json:"screens"`
+}
+
+func (v *v1) getScreens(w http.ResponseWriter, r *http.Request) {
+	var sp screensPayload
+	for _, s := range v.screens {
+		deets, err := screenDetails(s)
+		if err != nil {
+			logrus.WithError(err).WithField("screen", s.ID()).Warn("skipping unreachable screen")
+			continue
+		}
+		sp.Screens = append(sp.Screens, deets)
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+	if err := json.NewEncoder(w).Encode(&sp); err != nil {
+		// Not much else we can do at this point.
+		logrus.WithError(err).WithField("client", r.RemoteAddr).Error("returning screens payload failed")
 	}
 }
 
-const v1APIPrefix = "/api/v1"
+const V1APIPrefix = "/api/v1"
 
-func ConfigureV1(router *mux.Router, kiosks []*pijector.Kiosk) {
-	r := router.PathPrefix(v1APIPrefix).Subrouter().StrictSlash(true)
-	api := &v1{
-		kioskDetails: make([]*kioskDetails, len(kiosks)),
+// HandleV1 API at V1APIPrefix under the router.
+func HandleV1(router *mux.Router, screens []pijector.Screen) {
+	r := router.PathPrefix(V1APIPrefix).Subrouter().StrictSlash(true)
+	for _, s := range screens {
+		v1HandleScreen(r, s)
 	}
-	for i, k := range kiosks {
-		v1HandleKiosk(r, k)
-		kid := kioskID(k)
-		api.kioskDetails[i] = &kioskDetails{
-			URL:  fmt.Sprintf("/api/v1/kiosk/%v", kid),
-			ID:   kid,
-			Name: k.Address(),
-		}
-	}
-	r.Methods(http.MethodGet).Path("/kiosk").HandlerFunc(api.getKiosks)
+	r.Methods(http.MethodGet).Path("/screen").HandlerFunc((&v1{
+		screens: screens,
+	}).getScreens)
 }
 
-func New(kiosks []*pijector.Kiosk) http.Handler {
+// New V1 Pijector API handler.
+func New(screens []pijector.Screen) http.Handler {
 	r := mux.NewRouter()
-	ConfigureV1(r, kiosks)
+	HandleV1(r, screens)
 	return r
 }

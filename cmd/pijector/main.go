@@ -2,46 +2,41 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 
 	"github.com/cfunkhouser/pijector"
+	"github.com/cfunkhouser/pijector/admin"
 	"github.com/cfunkhouser/pijector/api"
-	"github.com/cfunkhouser/pijector/client"
 	"github.com/gorilla/mux"
+	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 )
 
 var (
-	// Version of pijector. Overridden at build time.
-	Version = "development"
-
-	defaultKioskAddress    = "127.0.0.1:9222"
-	defaultListenAddress   = "0.0.0.0:9292"
-	defaultKioskDisplayURL = "http://localhost:9292/"
-
 	commonFlags = []cli.Flag{
 		&cli.StringSliceFlag{
-			Name:    "kiosk",
-			Aliases: []string{"k"},
-			Usage:   "ip:port on which Chromium Kiosk's debugger is listening",
-			EnvVars: []string{"PIJECTOR_KIOSK_ADDRESS"},
-			Value:   cli.NewStringSlice(defaultKioskAddress),
+			Name:    "screen",
+			Aliases: []string{"s"},
+			Usage:   "ip:port on which a Chromium debugger is listening. May be repeated.",
+			EnvVars: []string{"PIJECTOR_SCREEN_ADDRESS"},
+			Value:   cli.NewStringSlice(defaultPijectorScreenAddr),
 		},
 		&cli.StringFlag{
 			Name:    "default-url",
 			Aliases: []string{"d"},
-			Usage:   "Default URL to open in the Chromium Kiosk",
-			EnvVars: []string{"PIJECTOR_KIOSK_DEFAULT_URL"},
-			Value:   defaultKioskDisplayURL,
+			Usage:   "Default URL to open on Pijector Screens",
+			EnvVars: []string{"PIJECTOR_SCREEN_DEFAULT_URL"},
+			Value:   defaultPijectorScreenURL,
 		},
 	}
 )
 
-func getCommonFlags(c *cli.Context) (ks []string, d string, err error) {
-	ks = c.StringSlice("kiosk")
-	if len(ks) < 1 {
-		err = cli.Exit("kiosk must be set", 1)
+func getCommonFlags(c *cli.Context) (ps []string, d string, err error) {
+	ps = c.StringSlice("screen")
+	if len(ps) < 1 {
+		err = cli.Exit("at least one screen must be specified", 1)
 		return
 	}
 	d = c.String("default-url")
@@ -51,38 +46,68 @@ func getCommonFlags(c *cli.Context) (ks []string, d string, err error) {
 	return
 }
 
-func serveAPI(c *cli.Context) error {
-	ks, d, err := getCommonFlags(c)
+func serve(c *cli.Context) error {
+	cp := c.String("config")
+	if cp == "" {
+		return cli.Exit("server needs a config", 1)
+	}
+	cf, err := os.Open(cp)
 	if err != nil {
-		return err
+		return cli.Exit(err, 1)
 	}
-	var kiosks []*pijector.Kiosk
-	for _, ka := range ks {
-		k, err := pijector.Dial(ka)
+	cfg, err := Load(cf)
+	if err != nil {
+		return cli.Exit(err, 1)
+	}
+
+	var screens []pijector.Screen
+	for _, scfg := range cfg.Screens {
+		s, err := scfg.attach()
 		if err != nil {
-			return cli.Exit(err, 1)
+			logrus.WithError(err).WithField("address", scfg.Address).Warn("attach failed")
+			// return cli.Exit(err, 1)
+		} else {
+			logrus.WithField("address", scfg.Address).Info("attached to screen")
 		}
-		kiosks = append(kiosks, k)
-		go func() { _ = k.Show(d) }()
+		screens = append(screens, s)
 	}
+
 	r := mux.NewRouter()
-	api.ConfigureV1(r, kiosks)
-	r.PathPrefix("/").HandlerFunc(client.StaticHandler)
+	api.HandleV1(r, screens)
+	r.PathPrefix("/").HandlerFunc(admin.Handler)
 	http.Handle("/", r)
-	return http.ListenAndServe(c.String("listen"), nil)
+
+	done := make(chan error)
+	go func(errs chan<- error, addr string) {
+		logrus.Infof("server listening on %v", cfg.Listen)
+		errs <- http.ListenAndServe(cfg.Listen, nil)
+	}(done, cfg.Listen)
+
+	for _, s := range screens {
+		if err := s.Show(cfg.DefaultURL); err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{
+				"target": cfg.DefaultURL,
+				"screen": s.ID(),
+			}).Warning("show failed")
+		}
+	}
+
+	err = <-done
+	logrus.WithError(err).Infof("server done listening")
+	return err
 }
 
 func show(c *cli.Context) error {
-	ks, d, err := getCommonFlags(c)
+	ps, d, err := getCommonFlags(c)
 	if err != nil {
 		return err
 	}
-	for _, ka := range ks {
-		k, err := pijector.Dial(ka)
+	for _, saddr := range ps {
+		s, err := pijector.AttachLocal("", saddr)
 		if err != nil {
 			return cli.Exit(err, 1)
 		}
-		if err := k.Show(d); err != nil {
+		if err := s.Show(d); err != nil {
 			return cli.Exit(err, 1)
 		}
 	}
@@ -90,14 +115,14 @@ func show(c *cli.Context) error {
 }
 
 func snap(c *cli.Context) error {
-	ks, _, err := getCommonFlags(c)
+	ps, _, err := getCommonFlags(c)
 	if err != nil {
 		return err
 	}
-	if len(ks) != 1 {
-		return cli.Exit("snap really only makes sense with one kiosk", 1)
+	if len(ps) != 1 {
+		return cli.Exit("snap really only makes sense with one screen", 1)
 	}
-	k, err := pijector.Dial(ks[0])
+	s, err := pijector.AttachLocal("", ps[0])
 	if err != nil {
 		return cli.Exit(err, 1)
 	}
@@ -105,7 +130,7 @@ func snap(c *cli.Context) error {
 	if o == "" {
 		return cli.Exit("output must be set", 1)
 	}
-	data, err := k.Screenshot()
+	snap, err := s.Snap()
 	if err != nil {
 		return cli.Exit(err, 1)
 	}
@@ -113,28 +138,31 @@ func snap(c *cli.Context) error {
 	if err != nil {
 		return cli.Exit(err, 1)
 	}
-	if _, err := of.Write(data); err != nil {
+	if _, err := io.Copy(of, snap); err != nil {
 		return cli.Exit(err, 1)
 	}
 	return nil
 }
 
 func main() {
+	logrus.SetLevel(logrus.DebugLevel)
 	app := &cli.App{
 		Name:    "pijector",
 		Usage:   "Turns a Chromium browser in debug mode into a Kiosk display.",
-		Version: Version,
+		Version: pijector.Version,
 		Commands: []*cli.Command{
 			{
 				Name: "server",
-				Flags: append(commonFlags, &cli.StringFlag{
-					Name:    "listen",
-					Aliases: []string{"L"},
-					Usage:   "ip:port on which to serve API requests",
-					Value:   defaultListenAddress,
-				}),
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:     "config",
+						Required: true,
+						Aliases:  []string{"c"},
+						Usage:    "Path to server configuration file.",
+					},
+				},
 				Usage:  "Run the pijector server",
-				Action: serveAPI,
+				Action: serve,
 			},
 			{
 				Name:   "show",
