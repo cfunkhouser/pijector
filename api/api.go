@@ -88,6 +88,7 @@ func screenToJSON(s pijector.Screen) ([]byte, error) {
 	}
 	return json.Marshal(m)
 }
+
 func (v *v1ScreenHandler) getStat(w http.ResponseWriter, r *http.Request) {
 	data, err := screenToJSON(v.s)
 	if err != nil {
@@ -126,8 +127,8 @@ func (v *v1) getScreens(w http.ResponseWriter, r *http.Request) {
 	for _, s := range v.screens {
 		deets, err := screenDetails(s)
 		if err != nil {
-			fmt.Fprintf(w, "Failed listing screens: %v", err)
 			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprintf(w, "Failed listing screens: %v", err)
 			return
 		}
 		sp.Screens = append(sp.Screens, deets)

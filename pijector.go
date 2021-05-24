@@ -295,6 +295,7 @@ func AttachRemote(name, u string, opts ...RemoteOption) (Screen, error) {
 			Transport: o.Transport,
 			Timeout:   o.ClientTimeout,
 		},
+		name:     name,
 		id:       id,
 		url:      u,
 		password: o.Password,
