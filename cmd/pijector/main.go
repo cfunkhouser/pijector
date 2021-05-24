@@ -10,14 +10,11 @@ import (
 	"github.com/cfunkhouser/pijector/admin"
 	"github.com/cfunkhouser/pijector/api"
 	"github.com/gorilla/mux"
+	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 )
 
 var (
-	defaultPijectorListenAddr = "0.0.0.0:9292"
-	defaultPijectorScreenAddr = "127.0.0.1:9222"
-	defaultPijectorScreenURL  = "http://localhost:9292/"
-
 	commonFlags = []cli.Flag{
 		&cli.StringSliceFlag{
 			Name:    "screen",
@@ -50,30 +47,42 @@ func getCommonFlags(c *cli.Context) (ps []string, d string, err error) {
 }
 
 func serve(c *cli.Context) error {
-	done := make(chan error)
-	ps, d, err := getCommonFlags(c)
-	if err != nil {
-		return err
+	cp := c.String("config")
+	if cp == "" {
+		return cli.Exit("server needs a config", 1)
 	}
+	cf, err := os.Open(cp)
+	if err != nil {
+		return cli.Exit(err, 1)
+	}
+	cfg, err := Load(cf)
+	if err != nil {
+		return cli.Exit(err, 1)
+	}
+
 	var screens []pijector.Screen
-	for _, saddr := range ps {
-		s, err := pijector.AttachLocal("", saddr)
+	for _, scfg := range cfg.Screens {
+		s, err := scfg.attach()
+		logrus.WithField("address", scfg.Address).Info("attached to screen")
 		if err != nil {
 			return cli.Exit(err, 1)
 		}
 		screens = append(screens, s)
 	}
+
 	r := mux.NewRouter()
 	api.HandleV1(r, screens)
 	r.PathPrefix("/").HandlerFunc(admin.Handler)
 	http.Handle("/", r)
 
+	done := make(chan error)
 	go func(errs chan<- error, addr string) {
-		errs <- http.ListenAndServe(c.String("listen"), nil)
-	}(done, c.String("listen"))
+		logrus.Infof("server listening on %v", cfg.Listen)
+		errs <- http.ListenAndServe(cfg.Listen, nil)
+	}(done, cfg.Listen)
 
 	for _, s := range screens {
-		_ = s.Show(d)
+		_ = s.Show(cfg.DefaultURL)
 	}
 
 	err = <-done
@@ -128,6 +137,7 @@ func snap(c *cli.Context) error {
 }
 
 func main() {
+	logrus.SetLevel(logrus.DebugLevel)
 	app := &cli.App{
 		Name:    "pijector",
 		Usage:   "Turns a Chromium browser in debug mode into a Kiosk display.",
@@ -135,12 +145,14 @@ func main() {
 		Commands: []*cli.Command{
 			{
 				Name: "server",
-				Flags: append(commonFlags, &cli.StringFlag{
-					Name:    "listen",
-					Aliases: []string{"L"},
-					Usage:   "ip:port on which to serve API requests",
-					Value:   defaultPijectorListenAddr,
-				}),
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:     "config",
+						Required: true,
+						Aliases:  []string{"c"},
+						Usage:    "Path to server configuration file.",
+					},
+				},
 				Usage:  "Run the pijector server",
 				Action: serve,
 			},

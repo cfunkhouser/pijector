@@ -12,7 +12,6 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
-	"net/http/cookiejar"
 	"net/url"
 	"strings"
 	"sync"
@@ -197,6 +196,10 @@ func (s *remoteScreen) Snap() (io.ReadCloser, error) {
 	return resp.Body, nil
 }
 
+type apiStat struct {
+	Display ScreenStatus `json:"display"`
+}
+
 func (s *remoteScreen) Stat() (stat ScreenStatus, err error) {
 	reqURL := fmt.Sprintf("%v/stat", s.url)
 	var req *http.Request
@@ -212,26 +215,26 @@ func (s *remoteScreen) Stat() (stat ScreenStatus, err error) {
 	if err = vetResponse(resp); err != nil {
 		return
 	}
-	err = json.NewDecoder(resp.Body).Decode(&stat)
+	var full apiStat
+	err = json.NewDecoder(resp.Body).Decode(&full)
+	stat = full.Display
 	return
 }
 
 type remoteInitOpt struct {
 	ClientTimeout time.Duration
-	CookieJar     http.CookieJar
 	Transport     http.RoundTripper
+	Password      string
 }
 
 func defaultInitOptions() *remoteInitOpt {
-	jar, _ := cookiejar.New(nil)
 	return &remoteInitOpt{
-		CookieJar:     jar,
 		ClientTimeout: 2 * time.Second,
 		Transport:     DefaultTransport(),
 	}
 }
 
-// DefaultTransport for HTTP requests to the LB112X API. Useful for wrapping the
+// DefaultTransport for HTTP requests to the Pijector API. Useful for wrapping the
 // transport from outside the library.
 func DefaultTransport() http.RoundTripper {
 	return &http.Transport{
@@ -261,10 +264,10 @@ func WithClientTimeout(ttl time.Duration) RemoteOption {
 	}
 }
 
-// WithCookieJar for use by the HTTP client communicating with the Pijector API.
-func WithCookieJar(jar http.CookieJar) RemoteOption {
+// WithPassword to authenticate to remote Pijector API.
+func WithPassword(password string) RemoteOption {
 	return func(o *remoteInitOpt) {
-		o.CookieJar = jar
+		o.Password = password
 	}
 }
 
@@ -278,7 +281,7 @@ func extractV1RemoteScreenID(u string) (string, error) {
 	return parts[1], nil
 }
 
-func AttachRemote(u, password string, opts ...RemoteOption) (Screen, error) {
+func AttachRemote(name, u string, opts ...RemoteOption) (Screen, error) {
 	o := defaultInitOptions()
 	for _, opt := range opts {
 		opt(o)
@@ -289,12 +292,11 @@ func AttachRemote(u, password string, opts ...RemoteOption) (Screen, error) {
 	}
 	return &remoteScreen{
 		c: &http.Client{
-			Jar:       o.CookieJar,
 			Transport: o.Transport,
 			Timeout:   o.ClientTimeout,
 		},
 		id:       id,
 		url:      u,
-		password: password,
+		password: o.Password,
 	}, nil
 }

@@ -6,7 +6,7 @@ PLATFORMS := linux-arm6 linux-arm7 linux-amd64 linux-386 darwin-amd64
 VERSION := $(shell git describe --always --tags --dirty="-dev-$$(git rev-parse --short HEAD)")
 BUILDCMD := go build -o
 ifneq ($(strip $(VERSION)),)
-	BUILDCMD := go build -ldflags="-X 'pijector.Version=$(VERSION)'" -o
+	BUILDCMD := go build -ldflags="-X 'github.com/cfunkhouser/pijector.Version=$(VERSION)'" -o
 endif
 
 BINARIES := $(foreach ku,$(PLATFORMS),$(BUILDDIR)/pijector-$(ku))
